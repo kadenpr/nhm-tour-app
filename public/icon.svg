@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="100" fill="#C67A1E"/>
+  <!-- Museum columns -->
+  <rect x="100" y="200" width="40" height="180" rx="6" fill="#fff" opacity="0.95"/>
+  <rect x="180" y="200" width="40" height="180" rx="6" fill="#fff" opacity="0.95"/>
+  <rect x="260" y="200" width="40" height="180" rx="6" fill="#fff" opacity="0.95"/>
+  <rect x="340" y="200" width="40" height="180" rx="6" fill="#fff" opacity="0.95"/>
+  <!-- Pediment (triangle roof) -->
+  <polygon points="256,90 420,195 92,195" fill="#fff" opacity="0.95"/>
+  <!-- Base -->
+  <rect x="80" y="380" width="352" height="30" rx="6" fill="#fff" opacity="0.95"/>
+  <rect x="60" y="405" width="392" height="20" rx="6" fill="#fff" opacity="0.8"/>
+</svg>
