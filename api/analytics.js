@@ -4,10 +4,13 @@ let supabase = null;
 
 function getSupabase() {
   if (!supabase) {
-    supabase = createClient(
-      process.env.SUPABASE_URL,
-      process.env.SUPABASE_SERVICE_KEY
-    );
+    const url = process.env.SUPABASE_URL;
+    const key = process.env.SUPABASE_SERVICE_KEY;
+    if (!url || !key) {
+      console.error("[analytics] Missing SUPABASE_URL or SUPABASE_SERVICE_KEY env vars");
+      return null;
+    }
+    supabase = createClient(url, key);
   }
   return supabase;
 }
@@ -22,15 +25,21 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing event name" });
   }
 
-  try {
-    const { error } = await getSupabase()
-      .from("events")
-      .insert({ event, timestamp, properties });
+  const client = getSupabase();
+  if (!client) {
+    return res.status(200).json({ ok: true, warn: "Supabase not configured" });
+  }
 
-    if (error) throw error;
+  try {
+    const { error } = await client
+      .from("events")
+      .insert({ event, timestamp: timestamp || new Date().toISOString(), properties });
+
+    if (error) {
+      console.error("[analytics] Supabase insert error:", error.message, error.details);
+    }
   } catch (err) {
-    // Log but don't fail the request — analytics should never break the app
-    console.error("[analytics]", err.message);
+    console.error("[analytics] Unexpected error:", err.message);
   }
 
   return res.status(200).json({ ok: true });
