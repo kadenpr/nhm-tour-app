@@ -10,6 +10,7 @@ import SavedRoutesScreen from "./components/SavedRoutesScreen";
 import { generateRoute, refineRoute } from "./api/generateRoute";
 import { loadTicket, saveTicket, updateTicket, clearTicket, ticketStatus, todayStr } from "./utils/ticket";
 import { getSavedRoutes, saveRoute } from "./utils/savedRoutes";
+import { trackEvent } from "./utils/analytics";
 
 export default function App() {
   // phases: questionnaire | generating-preview | follow-up | generating | ticket | welcome-back | result
@@ -40,13 +41,16 @@ export default function App() {
   // Edit route state
   const [editingRoute, setEditingRoute] = useState(false);
 
-  // On mount: check for shared route in URL hash, then saved ticket in localStorage
+  // On mount: track session start, check for shared route, then saved ticket
   useEffect(() => {
+    trackEvent("session_start");
+
     const hash = window.location.hash;
     if (hash.startsWith("#route=")) {
       try {
         const data = JSON.parse(atob(hash.slice(7)));
         if (data?.stops?.length) {
+          trackEvent("route_loaded_from_share", { stopCount: data.stops.length });
           setRouteData(data);
           setPhase("result");
           // Clean up the URL
@@ -67,15 +71,33 @@ export default function App() {
   }, []);
 
   const handleSubmit = async (answers) => {
+    trackEvent("questionnaire_completed", {
+      visitStyle: answers.visitStyle,
+      duration: answers.duration,
+      interests: answers.interests,
+      group: answers.group,
+      entrance: answers.entrance,
+      accessibility: answers.accessibility,
+      hasSpecificExhibits: !!answers.specificExhibits,
+      hasSpecialRequests: !!answers.specialRequests,
+    });
     setInitialAnswers(answers);
     setPhase("generating-preview");
     setProgress(0);
     setError(null);
     try {
       const data = await generateRoute(answers, (p) => setProgress(p));
+      trackEvent("route_generated", {
+        stopCount: data.stops?.length,
+        totalMinutes: data.totalMinutes,
+        cached: !!data.cached,
+        duration: answers.duration,
+        interests: answers.interests,
+      });
       setPreviewRoute(data);
       setPhase("follow-up");
     } catch (e) {
+      trackEvent("route_generation_failed", { error: e.message });
       console.error(e);
       setError(e.message || "Something went wrong. Please try again.");
       setPhase("questionnaire");
@@ -83,6 +105,12 @@ export default function App() {
   };
 
   const handleFollowUpSubmit = async (followUpAnswers) => {
+    trackEvent("follow_up_submitted", {
+      skippedCount: followUpAnswers.skip.length,
+      addedGems: followUpAnswers.addGems.length,
+      skipped: followUpAnswers.skip,
+      added: followUpAnswers.addGems,
+    });
     if (followUpAnswers.skip.length === 0 && followUpAnswers.addGems.length === 0) {
       setRouteData(previewRoute);
       setPhase("ticket");
@@ -93,9 +121,15 @@ export default function App() {
     setError(null);
     try {
       const data = await refineRoute(initialAnswers, previewRoute, followUpAnswers, (p) => setProgress(p));
+      trackEvent("route_refined", {
+        stopCount: data.stops?.length,
+        totalMinutes: data.totalMinutes,
+        cached: !!data.cached,
+      });
       setRouteData(data);
       setPhase("ticket");
     } catch (e) {
+      trackEvent("route_refinement_failed", { error: e.message });
       console.error(e);
       setError(e.message || "Something went wrong. Please try again.");
       setPhase("follow-up");
@@ -154,26 +188,47 @@ export default function App() {
 
   // Journey handlers
   const handleStartJourney = () => {
+    trackEvent("journey_started", { stopCount: routeData?.stops?.length });
     setJourneyStopIndex(0);
     setJourneyStep("at-exhibit");
     setJourneyMode(true);
   };
 
   const handleJourneyArrive = () => {
+    const stop = routeData?.stops?.[journeyStopIndex];
+    trackEvent("journey_stop_arrived", {
+      stopIndex: journeyStopIndex,
+      nodeId: stop?.nodeId,
+      stopCount: routeData?.stops?.length,
+    });
     setJourneyStep("at-exhibit");
   };
 
   const handleJourneyNext = () => {
     const nextIdx = journeyStopIndex + 1;
     if (nextIdx >= routeData.stops.length) {
+      trackEvent("journey_completed", { stopCount: routeData?.stops?.length });
       setJourneyStep("done");
     } else {
+      trackEvent("journey_next", {
+        fromIndex: journeyStopIndex,
+        toIndex: nextIdx,
+        fromNodeId: routeData?.stops?.[journeyStopIndex]?.nodeId,
+      });
       setJourneyStopIndex(nextIdx);
       setJourneyStep("travelling");
     }
   };
 
   const handleJourneyEnd = () => {
+    const completed = journeyStep === "done";
+    if (!completed) {
+      trackEvent("journey_abandoned", {
+        atStopIndex: journeyStopIndex,
+        atNodeId: routeData?.stops?.[journeyStopIndex]?.nodeId,
+        totalStops: routeData?.stops?.length,
+      });
+    }
     // Mark ticket as completed when journey ends
     if (ticketCode) {
       updateTicket({ completed: true });
@@ -198,6 +253,7 @@ export default function App() {
     const encoded = btoa(JSON.stringify(routeData));
     const url = `${window.location.origin}${window.location.pathname}#route=${encoded}`;
     navigator.clipboard.writeText(url).then(() => {
+      trackEvent("route_shared", { stopCount: routeData?.stops?.length });
       setShareCopied(true);
       setTimeout(() => setShareCopied(false), 2500);
     });
@@ -205,6 +261,7 @@ export default function App() {
 
   // Save route handler
   const handleSaveRoute = (name) => {
+    trackEvent("route_saved", { name, stopCount: routeData?.stops?.length });
     saveRoute(name, routeData);
     setSavedCount((c) => c + 1);
     setSavingRoute(false);

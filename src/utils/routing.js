@@ -64,13 +64,15 @@ export function shortestPath(startId, endId, edges) {
 
 /**
  * Compute full route paths between consecutive stops.
+ * Accepts optional congestion-adjusted edges (from getCongestionEdges).
  * Returns array of paths, one per consecutive pair of stops.
  * Each path is an array of nodeIds.
  */
-export function getRoutePaths(routeIds, edges) {
+export function getRoutePaths(routeIds, edges, congestionEdges = null) {
+  const effectiveEdges = congestionEdges || edges;
   const paths = [];
   for (let i = 0; i < routeIds.length - 1; i++) {
-    const path = shortestPath(routeIds[i], routeIds[i + 1], edges);
+    const path = shortestPath(routeIds[i], routeIds[i + 1], effectiveEdges);
     paths.push(path.length > 0 ? path : [routeIds[i], routeIds[i + 1]]);
   }
   return paths;

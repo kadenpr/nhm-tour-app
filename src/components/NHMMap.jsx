@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { NODES, EDGES, ZONE_COLORS, ZONE_LABELS, FLOOR_LABELS } from "../data/museumData";
 import { getRoutePaths } from "../utils/routing";
+import { getAllCongestionScores, getCongestionColor, getCongestionLevel, getCongestionEdges } from "../utils/congestion";
 
 // Gateway nodes that provide access to upper/lower floors
 const FLOOR_GATEWAYS = {
@@ -67,6 +68,13 @@ export default function NHMMap({
   const [activeFloor, setActiveFloor] = useState("G");
   const [selectedNode, setSelectedNode] = useState(null);
   const [view3D, setView3D] = useState(false);
+  const [congestionScores, setCongestionScores] = useState(() => getAllCongestionScores());
+
+  // Refresh congestion scores every 5 minutes
+  useEffect(() => {
+    const timer = setInterval(() => setCongestionScores(getAllCongestionScores()), 5 * 60 * 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Auto-switch floor when journey progresses
   useEffect(() => {
@@ -86,11 +94,17 @@ export default function NHMMap({
     return floors;
   }, [route]);
 
-  // Dijkstra paths between consecutive route stops
+  // Congestion-adjusted edges for routing (prefer quieter paths)
+  const congestionEdges = useMemo(
+    () => getCongestionEdges(EDGES, congestionScores),
+    [congestionScores]
+  );
+
+  // Dijkstra paths between consecutive route stops (congestion-aware)
   const routePaths = useMemo(() => {
     if (route.length < 2) return [];
-    return getRoutePaths(route, EDGES);
-  }, [route]);
+    return getRoutePaths(route, EDGES, congestionEdges);
+  }, [route, congestionEdges]);
 
   // Set of canonical "a|b" segment keys on the full route
   const routeSegmentKeys = useMemo(() => {
@@ -552,6 +566,9 @@ export default function NHMMap({
           const isEntrance = node.zone === "entrance";
           const r = isFacility ? 6 : 9;
           const dimmed = journeyDim(node.id);
+          const cScore = congestionScores[node.id];
+          const cColor = cScore != null ? getCongestionColor(cScore) : null;
+          const cLevel = cScore != null ? getCongestionLevel(cScore) : null;
 
           return (
             <g key={node.id} onClick={(e) => { e.stopPropagation(); handleNodeClick(node); }} style={{ cursor: "pointer" }}>
@@ -572,6 +589,14 @@ export default function NHMMap({
                   stroke={isSelected ? "#C67A1E" : color}
                   strokeWidth={isSelected ? 2.5 : 1.5}
                   opacity={dimmed ? 0.15 : (isFacility ? 0.6 : 0.8)}
+                />
+              )}
+              {/* Congestion indicator dot (top-right of node) */}
+              {!isFacility && !isEntrance && !dimmed && cColor && cLevel !== "low" && (
+                <circle
+                  cx={node.x + r - 1} cy={node.y - r + 1} r={3.5}
+                  fill={cColor} stroke="#fff" strokeWidth={1}
+                  opacity={0.9}
                 />
               )}
               {!isFacility && !dimmed && (
@@ -606,8 +631,19 @@ export default function NHMMap({
           const isCurrent = journeyMode && id === journeyCurrentId;
           const dimmed = journeyDim(id);
 
+          const cScore = congestionScores[id];
+          const cColor = cScore != null ? getCongestionColor(cScore) : null;
+
           return (
             <g key={`stop-${id}`} onClick={(e) => { e.stopPropagation(); handleNodeClick(node); }} style={{ cursor: "pointer" }}>
+              {/* Congestion ring behind the stop circle */}
+              {!dimmed && cColor && getCongestionLevel(cScore) !== "low" && (
+                <circle
+                  cx={node.x} cy={node.y} r={19}
+                  fill="none" stroke={cColor} strokeWidth={2.5}
+                  opacity={0.55}
+                />
+              )}
               {isCurrent && (
                 <>
                   <style>{`
@@ -760,6 +796,20 @@ export default function NHMMap({
               <span>Other exhibit</span>
             </div>
           )}
+          {/* Congestion key */}
+          <div style={{ borderTop: "1px solid #eee", marginTop: 2, paddingTop: 5, display: "flex", flexDirection: "column", gap: 4 }}>
+            <span style={{ fontSize: 10, color: "#aaa", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Now</span>
+            {[
+              { color: "#B03028", label: "Busy" },
+              { color: "#C67A1E", label: "Moderate" },
+              { color: "#22863a", label: "Quiet" },
+            ].map(({ color, label }) => (
+              <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                <span>{label}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
